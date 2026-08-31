@@ -1,0 +1,16 @@
+{
+  "name": "youtube-video-speed-enhancer",
+  "version": "2.0.1",
+  "private": true,
+  "description": "Manifest V3 browser extension for precise YouTube playback speed control.",
+  "scripts": {
+    "test": "npm run test:syntax && npm run test:static && npm run test:content",
+    "test:syntax": "node --check popup.js && node --check youtube_speed_change.js",
+    "test:static": "python tests/static-checks.py",
+    "test:content": "node tests/content-script.test.cjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}
