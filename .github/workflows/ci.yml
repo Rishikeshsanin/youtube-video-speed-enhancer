@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  test-and-package:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -26,8 +26,19 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Validate manifest
+      - name: Validate manifest JSON
         run: python -m json.tool manifest.json > /dev/null
 
-      - name: Run checks
+      - name: Run extension test suite
         run: npm test
+
+      - name: Build extension ZIP
+        run: npm run package
+
+      - name: Upload installable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: youtube-video-speed-enhancer-v3
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 14

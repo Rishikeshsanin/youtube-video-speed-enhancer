@@ -1,8 +1,8 @@
 (() => {
   "use strict";
 
-  if (globalThis.__YT_SPEED_ENHANCER_V2__) return;
-  globalThis.__YT_SPEED_ENHANCER_V2__ = true;
+  if (globalThis.__YT_SPEED_ENHANCER_V3__) return;
+  globalThis.__YT_SPEED_ENHANCER_V3__ = true;
 
   const DEFAULTS = Object.freeze({
     speed: 1,
@@ -11,16 +11,29 @@
   });
 
   const MIN_SPEED = 0.25;
-  const MAX_SPEED = 10;
+  const MAX_SPEED = 16;
   const STORAGE_KEY = "ytSpeedEnhancerSettings";
-  const REAPPLY_DELAYS = [0, 40, 120, 300, 750, 1500];
-  const WATCHDOG_INTERVAL = 1000;
+  const COMMAND_EVENT = "ytse:v3:command";
+  const STATE_EVENT = "ytse:v3:state";
+  const COMMAND_ATTR = "data-ytse-command";
+  const STATE_ATTR = "data-ytse-state";
 
   let settings = { ...DEFAULTS };
+  let engineState = {
+    engineVersion: 3,
+    ready: false,
+    configured: false,
+    requestedSpeed: 1,
+    actualSpeed: null,
+    effectiveMatch: null,
+    videoCount: 0,
+    hardLock: false,
+    prototypeGuard: false,
+    interceptedResets: 0
+  };
   let toastTimer = null;
-  let reapplyTimers = [];
   let started = false;
-  const observedVideos = new WeakSet();
+  let commandCounter = 0;
 
   const round = (value, places = 2) => {
     const factor = 10 ** places;
@@ -39,72 +52,55 @@
     return round(Math.min(2, Math.max(0.05, parsed)));
   };
 
-  const getVideos = () => Array.from(document.querySelectorAll("video"));
+  const sameRate = (a, b) => Math.abs(Number(a) - Number(b)) < 0.001;
+  const getRoot = () => document.documentElement;
 
-  function sameRate(a, b) {
-    return Math.abs(Number(a) - Number(b)) < 0.001;
-  }
+  function readEngineState() {
+    const root = getRoot();
+    if (!root) return engineState;
 
-  function enforceVideoRate(video, speed = settings.speed) {
-    if (!(video instanceof HTMLVideoElement)) return false;
+    const raw = root.getAttribute(STATE_ATTR);
+    if (!raw) return engineState;
 
-    const safeSpeed = clampSpeed(speed);
     try {
-      if (!sameRate(video.defaultPlaybackRate, safeSpeed)) {
-        video.defaultPlaybackRate = safeSpeed;
+      const next = JSON.parse(raw);
+      if (next && typeof next === "object") {
+        engineState = { ...engineState, ...next, ready: next.ready !== false };
       }
-      if (!sameRate(video.playbackRate, safeSpeed)) {
-        video.playbackRate = safeSpeed;
-      }
-      return sameRate(video.playbackRate, safeSpeed);
-    } catch (error) {
-      console.debug("[YT Speed Enhancer] Could not update a video element.", error);
-      return false;
+    } catch (_error) {
+      // Keep the previous state if the page modifies the diagnostic attribute.
     }
+
+    return engineState;
   }
 
-  function attachVideoGuard(video) {
-    if (!(video instanceof HTMLVideoElement) || observedVideos.has(video)) return;
-    observedVideos.add(video);
+  function dispatchEngineCommand(type, payload = {}) {
+    const root = getRoot();
+    if (!root) return engineState;
 
-    const reassert = () => {
-      if (!sameRate(video.playbackRate, settings.speed)) {
-        // YouTube can re-apply one of its own menu rates immediately after our
-        // write. Reassert on the next microtask and again shortly afterwards.
-        queueMicrotask(() => enforceVideoRate(video));
-        setTimeout(() => enforceVideoRate(video), 25);
-        setTimeout(() => enforceVideoRate(video), 120);
-      }
+    commandCounter += 1;
+    const command = {
+      id: commandCounter,
+      type,
+      ...payload
     };
 
-    video.addEventListener("ratechange", reassert, true);
-    video.addEventListener("loadedmetadata", () => enforceVideoRate(video), true);
-    video.addEventListener("canplay", () => enforceVideoRate(video), true);
-    video.addEventListener("playing", () => enforceVideoRate(video), true);
-    video.addEventListener("emptied", () => scheduleReapply(), true);
+    root.setAttribute(COMMAND_ATTR, JSON.stringify(command));
+    root.dispatchEvent(new Event(COMMAND_EVENT));
+    root.removeAttribute(COMMAND_ATTR);
+    return readEngineState();
   }
 
-  function applySpeed(speed = settings.speed) {
-    const safeSpeed = clampSpeed(speed);
-    let applied = 0;
-
-    for (const video of getVideos()) {
-      attachVideoGuard(video);
-      if (enforceVideoRate(video, safeSpeed)) applied += 1;
-    }
-
-    return applied;
-  }
-
-  function getActualSpeed() {
-    const videos = getVideos();
-    if (!videos.length) return null;
-    return round(videos[0].playbackRate);
+  function configureEngine(reason = "settings") {
+    return dispatchEngineCommand("CONFIGURE", {
+      speed: settings.speed,
+      reason
+    });
   }
 
   function formatSpeed(speed) {
-    const rounded = round(speed);
-    return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(2).replace(/0$/, "")}×`;
+    const value = round(speed);
+    return `${Number.isInteger(value) ? value : value.toFixed(2).replace(/0$/, "")}×`;
   }
 
   function showToast(speed = settings.speed) {
@@ -116,7 +112,7 @@
       toast.id = "yt-speed-enhancer-toast";
       Object.assign(toast.style, {
         position: "fixed",
-        top: "82px",
+        top: "78px",
         right: "24px",
         zIndex: "2147483647",
         display: "flex",
@@ -126,8 +122,8 @@
         border: "1px solid rgba(255,255,255,.14)",
         borderRadius: "12px",
         color: "#fff",
-        background: "rgba(12,14,19,.88)",
-        boxShadow: "0 12px 40px rgba(0,0,0,.35)",
+        background: "rgba(12,14,19,.9)",
+        boxShadow: "0 12px 40px rgba(0,0,0,.38)",
         backdropFilter: "blur(12px)",
         webkitBackdropFilter: "blur(12px)",
         fontFamily: "Roboto, Arial, sans-serif",
@@ -142,10 +138,8 @@
       document.documentElement.appendChild(toast);
     }
 
-    toast.innerHTML = `
-      <span style="width:7px;height:7px;border-radius:999px;background:#ff4545;box-shadow:0 0 0 4px rgba(255,69,69,.12)"></span>
-      <span>Playback <strong style="font-size:15px;margin-left:2px">${formatSpeed(speed)}</strong></span>
-    `;
+    const mode = engineState.hardLock ? " · locked" : "";
+    toast.textContent = `Playback ${formatSpeed(speed)}${mode}`;
 
     clearTimeout(toastTimer);
     requestAnimationFrame(() => {
@@ -156,17 +150,40 @@
     toastTimer = setTimeout(() => {
       toast.style.opacity = "0";
       toast.style.transform = "translateY(-5px) scale(.98)";
-    }, 1150);
+    }, 1100);
   }
 
   async function persistSettings() {
     await chrome.storage.sync.set({ [STORAGE_KEY]: settings });
   }
 
+  function getState() {
+    readEngineState();
+    return {
+      ...settings,
+      actualSpeed: Number.isFinite(Number(engineState.actualSpeed))
+        ? round(engineState.actualSpeed)
+        : null,
+      effectiveMatch: engineState.effectiveMatch,
+      engineReady: engineState.ready === true,
+      engineVersion: engineState.engineVersion ?? null,
+      videoCount: Number(engineState.videoCount) || 0,
+      hardLock: engineState.hardLock === true,
+      prototypeGuard: engineState.prototypeGuard === true,
+      playerApiAvailable: engineState.playerApiAvailable === true,
+      playerApiSynced: engineState.playerApiSynced === true,
+      playerNativeRate: engineState.playerNativeRate === true,
+      interceptedResets: Number(engineState.interceptedResets) || 0,
+      lastInterceptedRate: engineState.lastInterceptedRate ?? null,
+      minSpeed: MIN_SPEED,
+      maxSpeed: MAX_SPEED,
+      url: location.href
+    };
+  }
+
   async function setSpeed(value, { announce = true, persist = true } = {}) {
     settings.speed = clampSpeed(value);
-    applySpeed(settings.speed);
-    scheduleReapply();
+    configureEngine("set-speed");
     if (persist) await persistSettings();
     if (announce) showToast(settings.speed);
     return getState();
@@ -182,24 +199,6 @@
     settings.showToast = Boolean(value);
     if (persist) await persistSettings();
     return getState();
-  }
-
-  function getState() {
-    return {
-      ...settings,
-      actualSpeed: getActualSpeed(),
-      minSpeed: MIN_SPEED,
-      maxSpeed: MAX_SPEED,
-      videoCount: getVideos().length,
-      url: location.href
-    };
-  }
-
-  function scheduleReapply() {
-    for (const timer of reapplyTimers) clearTimeout(timer);
-    reapplyTimers = REAPPLY_DELAYS.map((delay) =>
-      setTimeout(() => applySpeed(settings.speed), delay)
-    );
   }
 
   function shouldIgnoreKeyboardEvent(event) {
@@ -218,47 +217,19 @@
 
     const increase = event.key === "+" || event.key === "=";
     const decrease = event.key === "-" || event.key === "_";
-    if (!increase && !decrease) return;
+    const reset = event.key === "\\";
+    if (!increase && !decrease && !reset) return;
 
     event.preventDefault();
     event.stopPropagation();
 
+    if (reset) {
+      void setSpeed(1);
+      return;
+    }
+
     const delta = increase ? settings.step : -settings.step;
     void setSpeed(settings.speed + delta);
-  }
-
-  function onVideoLifecycleEvent(event) {
-    if (event.target instanceof HTMLVideoElement) {
-      attachVideoGuard(event.target);
-      setTimeout(() => enforceVideoRate(event.target), 0);
-      setTimeout(() => enforceVideoRate(event.target), 220);
-    }
-  }
-
-  function installObservers() {
-    const observer = new MutationObserver((mutations) => {
-      const mayContainVideo = mutations.some((mutation) =>
-        Array.from(mutation.addedNodes).some(
-          (node) =>
-            node instanceof HTMLVideoElement ||
-            (node instanceof Element && node.querySelector?.("video"))
-        )
-      );
-
-      if (mayContainVideo) scheduleReapply();
-    });
-
-    observer.observe(document.documentElement, { childList: true, subtree: true });
-
-    document.addEventListener("loadedmetadata", onVideoLifecycleEvent, true);
-    document.addEventListener("canplay", onVideoLifecycleEvent, true);
-    document.addEventListener("playing", onVideoLifecycleEvent, true);
-    document.addEventListener("yt-navigate-finish", scheduleReapply);
-    document.addEventListener("yt-page-data-updated", scheduleReapply);
-
-    // Lightweight safety net for YouTube player updates that do not replace the
-    // video element or emit one of the navigation lifecycle events above.
-    setInterval(() => applySpeed(settings.speed), WATCHDOG_INTERVAL);
   }
 
   function installMessageHandler() {
@@ -269,7 +240,7 @@
         switch (message.type) {
           case "PING":
           case "GET_STATE":
-            applySpeed(settings.speed);
+            dispatchEngineCommand("GET_STATE");
             return { ok: true, state: getState() };
           case "SET_SPEED":
             return { ok: true, state: await setSpeed(message.speed) };
@@ -306,33 +277,44 @@
         showToast: saved.showToast !== false
       };
     } catch (error) {
-      console.debug("[YT Speed Enhancer] Could not load settings; using defaults.", error);
+      console.debug("[YTSE bridge] Could not load settings; using defaults", error);
       settings = { ...DEFAULTS };
     }
   }
 
-  chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== "sync" || !changes[STORAGE_KEY]?.newValue) return;
+  function installStorageSync() {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== "sync" || !changes[STORAGE_KEY]?.newValue) return;
 
-    const next = changes[STORAGE_KEY].newValue;
-    settings = {
-      speed: clampSpeed(next.speed ?? settings.speed),
-      step: clampStep(next.step ?? settings.step),
-      showToast: next.showToast !== false
-    };
-    applySpeed(settings.speed);
-    scheduleReapply();
-  });
+      const next = changes[STORAGE_KEY].newValue;
+      const nextSettings = {
+        speed: clampSpeed(next.speed ?? settings.speed),
+        step: clampStep(next.step ?? settings.step),
+        showToast: next.showToast !== false
+      };
+
+      const speedChanged = !sameRate(nextSettings.speed, settings.speed);
+      settings = nextSettings;
+      if (speedChanged) configureEngine("storage-sync");
+    });
+  }
 
   async function start() {
     if (started) return;
     started = true;
+
+    const root = getRoot();
+    if (root) {
+      root.addEventListener(STATE_EVENT, readEngineState);
+      readEngineState();
+    }
+
     await loadSettings();
     installMessageHandler();
-    installObservers();
+    installStorageSync();
     document.addEventListener("keydown", onKeyDown, true);
-    scheduleReapply();
-    console.info("[YT Speed Enhancer] v2.0.1 ready", getState());
+    configureEngine("startup");
+    console.info("[YTSE bridge] v3 isolated bridge ready", getState());
   }
 
   void start();

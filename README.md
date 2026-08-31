@@ -4,61 +4,99 @@
 
 # YouTube Video Speed Enhancer
 
-### Precise YouTube playback control beyond the native speed menu
+### Reliable, precise playback control beyond YouTube's native speed menu
 
-Set exact playback rates from **0.25× to 10×**, jump between presets, use keyboard controls, and keep your preferences synced across YouTube sessions.
+Set YouTube from **0.25× to 16×**, use quick presets and keyboard controls, and keep custom rates locked even when the page tries to reset the player.
 
-[![CI](https://github.com/Rishikeshsanin/youtube-video-speed-enhancer/actions/workflows/ci.yml/badge.svg)](https://github.com/Rishikeshsanin/youtube-video-speed-enhancer/actions/workflows/ci.yml)
+[![Extension checks](https://github.com/Rishikeshsanin/youtube-video-speed-enhancer/actions/workflows/ci.yml/badge.svg)](https://github.com/Rishikeshsanin/youtube-video-speed-enhancer/actions/workflows/ci.yml)
 ![Manifest V3](https://img.shields.io/badge/Manifest-V3-4285F4?logo=googlechrome&logoColor=white)
+![V3 engine](https://img.shields.io/badge/engine-dual--world-ff4545)
 ![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?logo=javascript&logoColor=111)
-![Version](https://img.shields.io/badge/version-2.0.1-ff4d4f)
+![Version](https://img.shields.io/badge/version-3.0.0_RC1-ff4d4f)
 ![License](https://img.shields.io/badge/license-MIT-22c55e)
 
-**No account · No analytics · No remote scripts · No build step**
+**No account · No analytics · No remote scripts · No build framework · Minimal permissions**
 
 </div>
 
 ---
 
-## Preview
+## V3 at a glance
 
 <table>
 <tr>
-<td width="50%" align="center">
-<strong>Popup UI</strong><br/><br/>
-<img src="docs/screenshots/popup-v2.png" width="320" alt="Speed Enhancer popup" />
+<td width="44%" align="center">
+<strong>V3 popup</strong><br/><br/>
+<img src="docs/screenshots/popup-v3-preview.svg" width="330" alt="V3 Speed Enhancer popup preview" />
 </td>
-<td width="50%" align="center">
-<strong>On YouTube</strong><br/><br/>
-<img src="docs/screenshots/youtube-live-preview.svg" width="620" alt="Speed Enhancer running on YouTube" />
+<td width="56%">
+<strong>What changed in V3</strong><br/><br/>
+
+- MAIN-world player controller starts at <code>document_start</code>
+- isolated extension bridge keeps <code>chrome.*</code> APIs separated from page code
+- custom rates are guarded against YouTube-side resets
+- native YouTube rates are synchronized through the player API when available
+- requested and effective playback rates are shown separately
+- automatic recovery covers SPA navigation and replacement video elements
+- speed range increased to <strong>16×</strong>
+- release ZIPs are reproducible from the repository
+
 </td>
 </tr>
 </table>
 
-> **Development status:** v2 is actively being hardened against YouTube player behavior across Chromium browsers. A known playback-rate mismatch is tracked in [Issue #1](https://github.com/Rishikeshsanin/youtube-video-speed-enhancer/issues/1).
+<p align="center">
+  <img src="docs/screenshots/youtube-live-preview.svg" width="860" alt="V3 Speed Enhancer running over a YouTube-like player preview" />
+</p>
 
-## Why this project exists
+> **Release status:** `3.0.0 RC1` is a major reliability rewrite. Automated engine/bridge tests pass, but the release remains an RC until it is manually verified on current production YouTube in both Brave and Chrome.
 
-YouTube's playback menu is useful for common speeds, but it is intentionally limited. This extension adds a dedicated control layer for people who want **finer increments, faster presets, persistent settings, and speeds beyond the native menu**.
+## Why the old implementation could say 10× while the video stayed slow
 
-The project started as a small keyboard-based controller and has since been rebuilt as a modern **Manifest V3** extension with a redesigned popup, Chrome storage, content-script messaging, SPA navigation handling, player replacement detection, and automated regression tests.
+V2 wrote directly to the page's `<video>.playbackRate` from an isolated content script. That changes the real HTML media element, but YouTube also maintains its own player state and can write a native rate back afterward. The old test harness only simulated a DOM video element, so it could pass while missing the production player-state race.
+
+V3 changes the architecture instead of adding another timer:
+
+```text
+Popup
+  │ chrome.tabs.sendMessage
+  ▼
+ISOLATED bridge (youtube_speed_change.js)
+  │ settings / keyboard / storage / diagnostics
+  │ DOM event + attribute protocol
+  ▼
+MAIN-world engine (player-main.js)
+  │
+  ├── YouTube player API for supported/native rates
+  ├── native HTMLMediaElement setter for custom rates
+  ├── MAIN-world playback setter guard for page resets
+  ├── ratechange recovery
+  ├── player replacement + SPA navigation recovery
+  └── effective-rate telemetry
+```
+
+The MAIN-world engine is intentionally small and has **no access to extension APIs**. The isolated bridge owns storage and popup messaging.
 
 ## Features
 
-- **0.25×–10×** configurable playback range
-- Exact speed slider + numeric input
-- Quick presets: **0.5×, 1×, 1.5×, 2×, 3×, 4×, 6×, 8×**
-- `+` / `−` keyboard speed control
+- Playback range from **0.25× to 16×**
+- Logarithmic slider for useful precision near normal speeds and fast access to high speeds
+- Exact numeric input
+- Presets for **0.5×, 1×, 1.5×, 2×, 3×, 4×, 6×, 8×, 12×, 16×**
+- `+` / `−` speed controls
+- `\` resets to **1×**
 - Configurable keyboard step: **0.10×, 0.25×, 0.50×, 1.00×**
-- Persistent preferences via `chrome.storage.sync`
+- Effective-rate telemetry in the popup
+- Automatic hard-lock only when a requested rate is outside YouTube's available player-rate table
 - YouTube SPA navigation support
 - Replacement `<video>` detection
-- Playback-rate reapplication guard
+- `ratechange` recovery and lightweight watchdog fallback
+- Persistent settings with `chrome.storage.sync`
 - Optional on-screen speed indicator
-- Input-safe shortcuts that do not interfere while typing
-- Connection/status feedback inside the popup
-- Minimal permissions: **`storage` only**
-- No telemetry, ads, external runtime dependencies, or remote code
+- Input-safe shortcuts that do not fire while typing
+- Chrome / Brave / Edge support on Chromium 111+
+- Only one extension permission: **`storage`**
+- No telemetry, ads, remote code, or runtime dependencies
 
 ## Install locally
 
@@ -68,51 +106,58 @@ The project started as a small keyboard-based controller and has since been rebu
 2. Open `chrome://extensions`.
 3. Enable **Developer mode**.
 4. Click **Load unpacked**.
-5. Select the folder containing `manifest.json`.
-6. Open or refresh a YouTube tab.
+5. Select the repository root — the folder containing `manifest.json`.
+6. Open or refresh a YouTube video.
 
 ### Brave / Edge
 
-The same unpacked extension works through the Chromium extension system:
+Use the same unpacked folder:
 
 - Brave: `brave://extensions`
 - Edge: `edge://extensions`
 
-After changing source files, use the **Reload** button on the extension card and refresh the YouTube tab before retesting.
+After source changes, click **Reload** on the extension card and then refresh the YouTube tab. Manifest and content-script changes require both steps.
 
-## Usage
+## How to verify V3
 
-| Goal | Control |
+Use a normal YouTube video and test these in order:
+
+| Test | Expected result |
 | --- | --- |
-| Increase speed | `+` or popup `+` |
-| Decrease speed | `−` or popup `−` |
-| Set an exact speed | Slider / number input |
-| Jump to a common value | Preset buttons |
-| Return to normal speed | **Reset to 1×** |
-| Change keyboard increment | **Keyboard step** dropdown |
-| Hide/show visual feedback | **On-screen indicator** toggle |
+| `1× → 2×` | popup and actual player both show 2× |
+| `2× → 4×` | player visibly accelerates and effective rate reports 4× |
+| `4× → 8×` | effective rate remains 8× instead of falling back |
+| `8× → 16×` | video runs at 16× if the browser/media pipeline supports it |
+| navigate to another video without reload | chosen rate is reapplied |
+| type in search/comments and press `+`/`−` | text input is unaffected |
+| while at custom rate, let YouTube try to reset the player | V3 reports the reset guard and restores the target |
 
-## Architecture
+At very high rates, audio behavior can vary by browser/media pipeline even when video playback remains accelerated.
+
+## Project structure
 
 ```text
 .
 ├── manifest.json
+├── player-main.js              # MAIN-world YouTube/media controller
+├── youtube_speed_change.js     # ISOLATED bridge, storage, keyboard, popup messaging
 ├── popup.html
 ├── popup.css
 ├── popup.js
-├── youtube_speed_change.js
 ├── assets/
 │   └── youtube_video_speed_icon.png
+├── scripts/
+│   └── build-release.py
+├── tests/
+│   ├── player-main.test.cjs
+│   ├── content-script.test.cjs
+│   └── static-checks.py
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   └── screenshots/
-│       ├── popup-v2.png
-│       └── youtube-live-preview.svg
-├── tests/
-│   ├── static-checks.py
-│   └── content-script.test.cjs
 ├── .github/
 │   ├── ISSUE_TEMPLATE/
+│   ├── pull_request_template.md
 │   └── workflows/ci.yml
 ├── CHANGELOG.md
 ├── ROADMAP.md
@@ -122,45 +167,51 @@ After changing source files, use the **Reload** button on the extension card and
 └── LICENSE
 ```
 
-The popup and the YouTube content script communicate through Chrome extension messaging. User preferences are persisted with `chrome.storage.sync`. The content script observes player lifecycle/DOM changes and attempts to keep the selected playback rate applied when YouTube replaces or resets the active `<video>` element.
-
-For the deeper design, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-
 ## Development
 
-There is intentionally **no bundler and no runtime dependency tree**. The repository stays inspectable: what you read is what the browser runs.
+There is no bundler and no application dependency tree. What is in the repository is what the browser executes.
 
-Run the complete local check suite:
+Run the full validation suite:
 
 ```bash
 npm test
 ```
 
-Or run each check directly:
+The suite checks:
+
+- JavaScript syntax
+- Manifest V3 wiring
+- MAIN/ISOLATED execution-world separation
+- player API synchronization
+- custom-rate setter interception
+- recovery from a simulated YouTube rate reset
+- replacement video handling
+- storage synchronization
+- keyboard behavior
+- speed clamping
+- repository/runtime packaging integrity
+
+Build the installable release archive:
 
 ```bash
-node --check popup.js
-node --check youtube_speed_change.js
-python -m json.tool manifest.json > /dev/null
-python tests/static-checks.py
-node tests/content-script.test.cjs
+npm run package
 ```
 
-CI runs the same checks for every push and pull request.
+The ZIP is generated under `dist/` with only browser-runtime files.
 
-## Current engineering focus
+## Privacy and security
 
-The highest-priority work is making the **displayed requested speed and the effective YouTube player speed stay identical across Chrome, Edge, and Brave**, including cases where YouTube internally rewrites the playback rate. See the [roadmap](ROADMAP.md) and open [issues](https://github.com/Rishikeshsanin/youtube-video-speed-enhancer/issues).
+The extension stores only its own playback preferences. It does **not** collect browsing history, video titles, account information, analytics, or telemetry, and it performs no network requests of its own.
 
-## Privacy
+See [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md).
 
-The extension stores only its own user preferences. It does **not** collect or transmit browsing history, video information, personal data, analytics, or telemetry.
+## Roadmap
 
-Read the complete policy in [PRIVACY.md](PRIVACY.md).
+Reliability comes before extra features. Current priorities are tracked in [ROADMAP.md](ROADMAP.md) and GitHub Issues.
 
-## Contributing
+## Disclaimer
 
-Bug reports from different YouTube layouts and Chromium browsers are especially useful. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR.
+YouTube Video Speed Enhancer is an independent open-source project and is not affiliated with, endorsed by, or sponsored by YouTube or Google.
 
 ## License
 

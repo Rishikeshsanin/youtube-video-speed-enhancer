@@ -2,7 +2,7 @@
 
 ## Supported version
 
-Security fixes are applied to the latest v2 release line.
+Security fixes are applied to the latest supported release line. During the v3 release-candidate period, fixes land on `main` first and are carried into the next packaged release.
 
 ## Reporting a vulnerability
 
@@ -15,7 +15,10 @@ For sensitive reports, contact the maintainer through the contact information av
 This extension intentionally:
 
 - requests only the `storage` permission,
+- limits host access to YouTube through declarative content-script matches,
 - contains no remote executable code,
 - contains no analytics or tracking,
 - has no runtime dependency supply chain,
 - does not transmit browsing or video data.
+
+The v3 player engine includes a MAIN-world content script because reliable interaction with YouTube's own player state requires page-world execution. The companion ISOLATED bridge remains responsible for extension APIs and persistence, keeping page-world code deliberately small and free of `chrome.*` APIs.

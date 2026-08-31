@@ -5,7 +5,7 @@ const vm = require("node:vm");
 
 class FakeElement {
   constructor() {
-    this.children = [];
+    this.attrs = new Map();
     this.listeners = new Map();
   }
 
@@ -14,27 +14,27 @@ class FakeElement {
     this.listeners.get(type).push(handler);
   }
 
-  dispatchEvent(type) {
-    for (const handler of this.listeners.get(type) || []) handler({ target: this });
+  dispatchEvent(event) {
+    const evt = typeof event === "string" ? { type: event, target: this } : event;
+    if (!evt.target) evt.target = this;
+    for (const handler of this.listeners.get(evt.type) || []) handler(evt);
+    return true;
+  }
+
+  setAttribute(name, value) {
+    this.attrs.set(name, String(value));
+  }
+
+  getAttribute(name) {
+    return this.attrs.has(name) ? this.attrs.get(name) : null;
+  }
+
+  removeAttribute(name) {
+    this.attrs.delete(name);
   }
 
   closest() {
     return null;
-  }
-
-  querySelector(selector) {
-    if (selector === "video") {
-      return this.children.find((child) => child instanceof FakeVideo) || null;
-    }
-    return null;
-  }
-}
-
-class FakeVideo extends FakeElement {
-  constructor() {
-    super();
-    this.playbackRate = 1;
-    this.defaultPlaybackRate = 1;
   }
 }
 
@@ -44,17 +44,57 @@ class FakeEditable extends FakeElement {
   }
 }
 
-const videoA = new FakeVideo();
-const videos = [videoA];
+const root = new FakeElement();
 const documentListeners = new Map();
 let messageHandler;
 let storageChangeHandler;
-let mutationCallback;
 let storedSettings = { speed: 1.5, step: 0.25, showToast: false };
+let engineState = {
+  engineVersion: 3,
+  ready: true,
+  configured: false,
+  requestedSpeed: 1,
+  actualSpeed: null,
+  effectiveMatch: null,
+  videoCount: 1,
+  hardLock: false,
+  prototypeGuard: true,
+  playerApiAvailable: true,
+  playerApiSynced: true,
+  playerNativeRate: true,
+  interceptedResets: 0
+};
+
+function publishEngineState(reason = "test") {
+  root.setAttribute("data-ytse-state", JSON.stringify({ ...engineState, reason }));
+  root.dispatchEvent({ type: "ytse:v3:state", target: root });
+}
+
+root.addEventListener("ytse:v3:command", () => {
+  const command = JSON.parse(root.getAttribute("data-ytse-command"));
+  if (command.type === "CONFIGURE" || command.type === "SET_SPEED") {
+    const speed = Math.max(0.25, Math.min(16, Number(command.speed)));
+    engineState = {
+      ...engineState,
+      configured: true,
+      requestedSpeed: speed,
+      actualSpeed: speed,
+      effectiveMatch: true,
+      hardLock: ![0.25, 0.5, 1, 1.5, 2, 3, 4].includes(speed),
+      playerApiSynced: [0.25, 0.5, 1, 1.5, 2, 3, 4].includes(speed),
+      playerNativeRate: [0.25, 0.5, 1, 1.5, 2, 3, 4].includes(speed)
+    };
+  }
+  publishEngineState(command.type.toLowerCase());
+});
 
 Object.assign(globalThis, {
   Element: FakeElement,
-  HTMLVideoElement: FakeVideo,
+  Event: class {
+    constructor(type) {
+      this.type = type;
+    }
+  },
   location: { href: "https://www.youtube.com/watch?v=test" },
   requestAnimationFrame: (callback) => callback(),
   setTimeout: (callback) => {
@@ -62,20 +102,13 @@ Object.assign(globalThis, {
     return 1;
   },
   clearTimeout: () => {},
-  setInterval: () => 1,
-  clearInterval: () => {},
   document: {
-    documentElement: new FakeElement(),
-    querySelectorAll: (selector) => (selector === "video" ? videos : []),
+    documentElement: root,
     getElementById: () => null,
     createElement: () => new FakeElement(),
-    addEventListener: (type, handler) => documentListeners.set(type, handler)
-  },
-  MutationObserver: class {
-    constructor(callback) {
-      mutationCallback = callback;
+    addEventListener(type, handler) {
+      documentListeners.set(type, handler);
     }
-    observe() {}
   },
   chrome: {
     storage: {
@@ -118,39 +151,36 @@ function send(message) {
 }
 
 (async () => {
+  publishEngineState("boot");
   const source = fs.readFileSync(path.join(__dirname, "..", "youtube_speed_change.js"), "utf8");
   vm.runInThisContext(source, { filename: "youtube_speed_change.js" });
   await Promise.resolve();
   await Promise.resolve();
 
-  assert.equal(typeof messageHandler, "function", "content script should install a message handler");
-  assert.equal(typeof mutationCallback, "function", "content script should observe YouTube DOM changes");
-  assert.equal(typeof storageChangeHandler, "function", "content script should observe stored setting changes");
-  assert.equal(videoA.playbackRate, 1.5, "saved playback speed should be applied on startup");
+  assert.equal(typeof messageHandler, "function", "isolated bridge should install a popup message handler");
+  assert.equal(typeof storageChangeHandler, "function", "isolated bridge should observe sync settings");
+  assert.equal(engineState.requestedSpeed, 1.5, "saved speed should configure the main-world engine at startup");
 
   let response = await send({ type: "GET_STATE" });
   assert.equal(response.ok, true);
   assert.equal(response.state.speed, 1.5);
-  assert.equal(response.state.videoCount, 1);
+  assert.equal(response.state.actualSpeed, 1.5);
+  assert.equal(response.state.engineReady, true);
 
-  response = await send({ type: "SET_SPEED", speed: 3.25 });
-  assert.equal(response.state.speed, 3.25);
-  assert.equal(videoA.playbackRate, 3.25);
-  assert.equal(storedSettings.speed, 3.25);
+  response = await send({ type: "SET_SPEED", speed: 8 });
+  assert.equal(response.state.speed, 8);
+  assert.equal(response.state.actualSpeed, 8);
+  assert.equal(response.state.hardLock, true, "custom high speeds should report reset guard mode");
+  assert.equal(storedSettings.speed, 8, "selected speed should persist");
 
   response = await send({ type: "SET_SPEED", speed: 999 });
-  assert.equal(response.state.speed, 10, "speed should clamp to the 10x maximum");
+  assert.equal(response.state.speed, 16, "bridge should clamp to the product maximum");
+  assert.equal(engineState.actualSpeed, 16);
 
-  response = await send({ type: "SET_SPEED", speed: 0 });
-  assert.equal(response.state.speed, 0.25, "speed should clamp to the 0.25x minimum");
-
+  await send({ type: "SET_SPEED", speed: 1 });
   await send({ type: "SET_STEP", step: 0.5 });
   response = await send({ type: "NUDGE_SPEED", direction: 1 });
-  assert.equal(response.state.speed, 0.75, "nudge should use the configured step");
-
-  response = await send({ type: "RESET_SPEED" });
-  assert.equal(response.state.speed, 1);
-  assert.equal(videoA.playbackRate, 1);
+  assert.equal(response.state.speed, 1.5, "nudge should use the configured keyboard step");
 
   const keyboardHandler = documentListeners.get("keydown");
   assert.equal(typeof keyboardHandler, "function", "keyboard shortcuts should be installed");
@@ -167,40 +197,31 @@ function send(message) {
   };
   keyboardHandler(event);
   await Promise.resolve();
-  assert.equal(videoA.playbackRate, 1.5, "+ should increase speed by the configured step");
-
-  // Simulate YouTube trying to force the player back to a native menu rate.
-  videoA.playbackRate = 2;
-  videoA.dispatchEvent("ratechange");
   await Promise.resolve();
-  await Promise.resolve();
-  assert.equal(videoA.playbackRate, 1.5, "rate guard should recover from a YouTube playback-rate reset");
+  assert.equal(engineState.actualSpeed, 2, "+ should increase speed through the main-world bridge");
 
-  const editingEvent = {
-    ...event,
-    target: new FakeEditable()
-  };
+  const editingEvent = { ...event, target: new FakeEditable() };
   keyboardHandler(editingEvent);
   await Promise.resolve();
-  assert.equal(videoA.playbackRate, 1.5, "shortcuts should be ignored while typing");
+  assert.equal(engineState.actualSpeed, 2, "shortcuts should be ignored while typing");
 
-  const videoB = new FakeVideo();
-  videos.push(videoB);
-  mutationCallback([{ addedNodes: [videoB] }]);
-  assert.equal(videoB.playbackRate, 1.5, "replacement YouTube video elements should inherit the selected speed");
+  const resetEvent = { ...event, key: "\\" };
+  keyboardHandler(resetEvent);
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(engineState.actualSpeed, 1, "backslash should reset playback to 1x");
 
   storageChangeHandler(
     {
       ytSpeedEnhancerSettings: {
-        newValue: { speed: 2, step: 0.1, showToast: false }
+        newValue: { speed: 3, step: 0.1, showToast: false }
       }
     },
     "sync"
   );
-  assert.equal(videoA.playbackRate, 2, "storage changes should sync back into the active player");
-  assert.equal(videoB.playbackRate, 2);
+  assert.equal(engineState.actualSpeed, 3, "storage changes should reconfigure the active player engine");
 
-  console.log("content-script behavior: ok");
+  console.log("isolated bridge behavior: ok");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

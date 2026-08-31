@@ -14,7 +14,10 @@
           <img src="assets/youtube_video_speed_icon.png" alt="" />
         </div>
         <div class="brand-copy">
-          <p class="eyebrow">YOUTUBE TOOL</p>
+          <div class="brand-kicker">
+            <p class="eyebrow">YOUTUBE TOOL</p>
+            <span class="version-pill">V3</span>
+          </div>
           <h1>Speed Enhancer</h1>
         </div>
         <div class="status-dot" id="statusDot" title="Connection status" aria-label="Connection status"></div>
@@ -29,19 +32,25 @@
         <div class="speed-topline">
           <div>
             <p class="section-label" id="speedHeading">Playback speed</p>
-            <p class="section-help">0.25× to 10×</p>
+            <p class="section-help">Fine control from 0.25× to 16×</p>
           </div>
-          <output class="speed-readout" id="speedReadout" for="speedRange">1.00×</output>
+          <div class="speed-summary">
+            <output class="speed-readout" id="speedReadout" for="speedRange">1.00×</output>
+            <div class="effective-pill" id="effectivePill" title="Effective HTML5 video playback rate">
+              <span class="effective-dot" aria-hidden="true"></span>
+              <span>Effective <strong id="effectiveReadout">—</strong></span>
+            </div>
+          </div>
         </div>
 
         <input
           id="speedRange"
           class="speed-range"
           type="range"
-          min="0.25"
-          max="10"
-          step="0.05"
-          value="1"
+          min="0"
+          max="1000"
+          step="1"
+          value="333"
           aria-label="Playback speed"
         />
 
@@ -53,9 +62,9 @@
               class="speed-input"
               type="number"
               min="0.25"
-              max="10"
+              max="16"
               step="0.05"
-              value="1"
+              value="1.00"
               inputmode="decimal"
               aria-label="Custom playback speed"
             />
@@ -79,6 +88,8 @@
           <button class="preset-button" type="button" data-speed="4">4×</button>
           <button class="preset-button" type="button" data-speed="6">6×</button>
           <button class="preset-button" type="button" data-speed="8">8×</button>
+          <button class="preset-button" type="button" data-speed="12">12×</button>
+          <button class="preset-button" type="button" data-speed="16">16×</button>
         </div>
       </section>
 
@@ -110,9 +121,12 @@
       </section>
 
       <footer class="app-footer">
-        <div class="shortcut"><kbd>+</kbd><span>Faster</span></div>
-        <div class="shortcut"><kbd>−</kbd><span>Slower</span></div>
-        <span class="footer-note">Saved automatically</span>
+        <div class="shortcut-group">
+          <div class="shortcut"><kbd>+</kbd><span>Faster</span></div>
+          <div class="shortcut"><kbd>−</kbd><span>Slower</span></div>
+          <div class="shortcut"><kbd>\</kbd><span>Reset</span></div>
+        </div>
+        <span class="footer-note" id="engineLabel">V3 engine</span>
       </footer>
     </main>
 

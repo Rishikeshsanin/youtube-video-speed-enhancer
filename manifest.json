@@ -2,8 +2,10 @@
   "manifest_version": 3,
   "name": "YouTube Video Speed Enhancer",
   "short_name": "YT Speed",
-  "version": "2.0.1",
-  "description": "Control YouTube playback speed beyond 2x with presets, custom steps, keyboard shortcuts, and persistent settings.",
+  "version": "3.0.0",
+  "version_name": "3.0.0 RC1",
+  "minimum_chrome_version": "111",
+  "description": "Reliable YouTube playback speed control from 0.25x to 16x with presets, keyboard shortcuts, persistent settings, and a dual-world player engine.",
   "icons": {
     "16": "assets/youtube_video_speed_icon.png",
     "48": "assets/youtube_video_speed_icon.png",
@@ -18,9 +20,20 @@
         "https://*.youtube.com/*"
       ],
       "js": [
+        "player-main.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://*.youtube.com/*"
+      ],
+      "js": [
         "youtube_speed_change.js"
       ],
-      "run_at": "document_idle"
+      "run_at": "document_start",
+      "world": "ISOLATED"
     }
   ],
   "action": {

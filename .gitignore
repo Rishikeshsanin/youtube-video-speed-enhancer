@@ -1,5 +1,5 @@
 .DS_Store
 Thumbs.db
-*.crx
-*.pem
-*.zip
+*.log
+node_modules/
+dist/

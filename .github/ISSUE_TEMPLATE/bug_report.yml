@@ -5,7 +5,14 @@ labels: ["bug"]
 body:
   - type: markdown
     attributes:
-      value: Thanks for helping make playback control more reliable.
+      value: Thanks for helping make playback control more reliable. For speed bugs, the Requested and Effective values shown by the popup are especially useful.
+  - type: input
+    id: version
+    attributes:
+      label: Extension version
+      placeholder: 3.0.0 RC1
+    validations:
+      required: true
   - type: input
     id: browser
     attributes:
@@ -20,16 +27,33 @@ body:
       placeholder: Windows 11
     validations:
       required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: YouTube surface
+      options:
+        - Regular watch page
+        - Shorts
+        - Live stream
+        - Embedded player
+        - Other
+    validations:
+      required: true
   - type: input
     id: requested
     attributes:
-      label: Requested speed
-      placeholder: 4x
+      label: Requested speed shown by the popup
+      placeholder: 8x
+  - type: input
+    id: effective
+    attributes:
+      label: Effective speed shown by the popup
+      placeholder: 8x / 2x / unavailable
   - type: textarea
     id: observed
     attributes:
       label: What actually happened?
-      description: Include whether the popup value changed and whether the video speed changed.
+      description: Include whether the popup changed, whether playback visibly changed, and whether the engine showed locked/native/recovering status.
     validations:
       required: true
   - type: textarea
@@ -39,12 +63,14 @@ body:
       placeholder: |
         1. Open a YouTube video
         2. Open the extension
-        3. Select 4x
-        4. ...
+        3. Select 8x
+        4. Navigate to another video without a full refresh
+        5. ...
     validations:
       required: true
   - type: textarea
     id: logs
     attributes:
       label: Relevant console output
+      description: Please remove private account/video information before posting.
       render: shell

@@ -4,7 +4,8 @@
   const DEFAULTS = Object.freeze({ speed: 1, step: 0.25, showToast: true });
   const STORAGE_KEY = "ytSpeedEnhancerSettings";
   const MIN_SPEED = 0.25;
-  const MAX_SPEED = 10;
+  const MAX_SPEED = 16;
+  const SLIDER_MAX = 1000;
 
   const elements = {};
   let activeTabId = null;
@@ -25,10 +26,18 @@
     return round(Math.min(MAX_SPEED, Math.max(MIN_SPEED, parsed)));
   };
 
-  const formatSpeed = (speed) => {
-    const value = round(speed);
-    return `${Number.isInteger(value) ? value.toFixed(2) : value.toFixed(2)}×`;
-  };
+  const formatSpeed = (speed) => `${clampSpeed(speed).toFixed(2)}×`;
+
+  function speedToSlider(speed) {
+    const safe = clampSpeed(speed);
+    const normalized = Math.log(safe / MIN_SPEED) / Math.log(MAX_SPEED / MIN_SPEED);
+    return Math.round(Math.max(0, Math.min(1, normalized)) * SLIDER_MAX);
+  }
+
+  function sliderToSpeed(value) {
+    const normalized = Math.max(0, Math.min(1, Number(value) / SLIDER_MAX));
+    return clampSpeed(MIN_SPEED * (MAX_SPEED / MIN_SPEED) ** normalized);
+  }
 
   function cacheElements() {
     [
@@ -36,6 +45,8 @@
       "statusCard",
       "statusText",
       "speedReadout",
+      "effectivePill",
+      "effectiveReadout",
       "speedRange",
       "speedInput",
       "decreaseSpeed",
@@ -43,20 +54,29 @@
       "resetSpeed",
       "presetGrid",
       "jumpInput",
-      "showToast"
+      "showToast",
+      "engineLabel"
     ].forEach((id) => {
       elements[id] = byId(id);
     });
   }
 
-  function setConnectionStatus(isConnected, text) {
+  function setConnectionStatus(isConnected, text, tone = "neutral") {
     connected = isConnected;
-    elements.statusDot.classList.toggle("connected", isConnected);
-    elements.statusDot.classList.toggle("disconnected", !isConnected);
-    elements.statusCard.classList.toggle("connected", isConnected);
-    elements.statusCard.classList.toggle("disconnected", !isConnected);
+    const classes = ["connected", "warning", "disconnected"];
+    for (const className of classes) {
+      elements.statusDot.classList.remove(className);
+      elements.statusCard.classList.remove(className);
+    }
+
+    const className = isConnected ? tone : "disconnected";
+    if (className !== "neutral") {
+      elements.statusDot.classList.add(className);
+      elements.statusCard.classList.add(className);
+    }
     elements.statusText.textContent = text;
 
+    const disabled = !isConnected;
     for (const element of [
       elements.speedRange,
       elements.speedInput,
@@ -66,33 +86,84 @@
       elements.jumpInput,
       elements.showToast
     ]) {
-      element.disabled = !isConnected;
+      element.disabled = disabled;
     }
 
     elements.presetGrid.querySelectorAll("button").forEach((button) => {
-      button.disabled = !isConnected;
+      button.disabled = disabled;
     });
   }
 
-  function updateRangeProgress(speed) {
-    const percentage = ((speed - MIN_SPEED) / (MAX_SPEED - MIN_SPEED)) * 100;
-    elements.speedRange.style.setProperty("--range-progress", `${Math.max(0, Math.min(100, percentage))}%`);
+  function updateRangeProgress(sliderValue) {
+    const percentage = (Number(sliderValue) / SLIDER_MAX) * 100;
+    elements.speedRange.style.setProperty(
+      "--range-progress",
+      `${Math.max(0, Math.min(100, percentage))}%`
+    );
+  }
+
+  function updateHealth(nextState) {
+    if (!connected) return;
+
+    if (nextState.engineReady === false) {
+      setConnectionStatus(false, "Player engine unavailable — reload the extension");
+      elements.engineLabel.textContent = "Engine offline";
+      return;
+    }
+
+    if (!nextState.videoCount) {
+      setConnectionStatus(true, "Connected — waiting for a YouTube video", "warning");
+      elements.engineLabel.textContent = "V3 engine · waiting";
+      return;
+    }
+
+    if (nextState.effectiveMatch === false) {
+      const actual = Number.isFinite(Number(nextState.actualSpeed))
+        ? formatSpeed(nextState.actualSpeed)
+        : "—";
+      setConnectionStatus(
+        true,
+        `Applying ${formatSpeed(nextState.speed)} · player is ${actual}`,
+        "warning"
+      );
+      elements.engineLabel.textContent = "V3 engine · recovering";
+      return;
+    }
+
+    const lockCopy = nextState.hardLock ? " · reset guard active" : "";
+    setConnectionStatus(
+      true,
+      `Synced at ${formatSpeed(nextState.speed)}${lockCopy}`,
+      "connected"
+    );
+    elements.engineLabel.textContent = nextState.hardLock
+      ? "V3 engine · locked"
+      : "V3 engine · native sync";
   }
 
   function render(nextState = state) {
     state = { ...state, ...nextState };
     const speed = clampSpeed(state.speed);
+    const sliderValue = speedToSlider(speed);
 
     elements.speedReadout.textContent = formatSpeed(speed);
-    elements.speedRange.value = String(speed);
-    elements.speedInput.value = String(speed);
+    elements.speedRange.value = String(sliderValue);
+    elements.speedInput.value = speed.toFixed(2);
     elements.jumpInput.value = String(state.step ?? DEFAULTS.step);
     elements.showToast.checked = state.showToast !== false;
-    updateRangeProgress(speed);
+    updateRangeProgress(sliderValue);
+
+    const actual = Number.isFinite(Number(state.actualSpeed)) ? Number(state.actualSpeed) : null;
+    elements.effectiveReadout.textContent = actual == null ? "—" : formatSpeed(actual);
+    elements.effectivePill.classList.toggle("matching", state.effectiveMatch === true);
+    elements.effectivePill.classList.toggle("mismatch", state.effectiveMatch === false);
+    elements.effectivePill.classList.toggle("idle", state.effectiveMatch == null);
 
     elements.presetGrid.querySelectorAll("[data-speed]").forEach((button) => {
       button.classList.toggle("active", Math.abs(Number(button.dataset.speed) - speed) < 0.001);
     });
+
+    updateHealth(state);
   }
 
   async function loadStoredState() {
@@ -110,7 +181,7 @@
 
   async function connectToActiveTab() {
     if (typeof chrome === "undefined" || !chrome.tabs?.query) {
-      setConnectionStatus(true, "Preview mode — controls are ready");
+      setConnectionStatus(true, "Preview mode — controls are ready", "connected");
       return;
     }
 
@@ -125,24 +196,25 @@
     try {
       const response = await sendMessage({ type: "PING" });
       if (!response?.ok) throw new Error(response?.error || "No content script response");
+      connected = true;
       render(response.state);
-      setConnectionStatus(true, "Connected — changes apply instantly");
     } catch (_error) {
-      setConnectionStatus(false, "Open a YouTube video, then reopen this popup");
+      setConnectionStatus(false, "Open a YouTube video, refresh it, then reopen this popup");
     }
   }
 
   async function updateSpeed(speed, { immediate = true } = {}) {
     const nextSpeed = clampSpeed(speed);
-    render({ speed: nextSpeed });
+    render({ speed: nextSpeed, effectiveMatch: null });
     if (!connected) return;
 
     const commit = async () => {
       try {
         const response = await sendMessage({ type: "SET_SPEED", speed: nextSpeed });
-        if (response?.state) render(response.state);
+        if (!response?.ok) throw new Error(response?.error || "Speed update failed");
+        if (response.state) render(response.state);
       } catch (_error) {
-        setConnectionStatus(false, "Connection lost — reopen on a YouTube tab");
+        setConnectionStatus(false, "Connection lost — refresh YouTube and reopen the popup");
       }
     };
 
@@ -150,17 +222,28 @@
     if (immediate) {
       await commit();
     } else {
-      speedCommitTimer = setTimeout(commit, 80);
+      speedCommitTimer = setTimeout(commit, 75);
+    }
+  }
+
+  async function runSimpleCommand(message) {
+    if (!connected) return;
+    try {
+      const response = await sendMessage(message);
+      if (!response?.ok) throw new Error(response?.error || "Command failed");
+      if (response.state) render(response.state);
+    } catch (_error) {
+      setConnectionStatus(false, "Connection lost — refresh YouTube and reopen the popup");
     }
   }
 
   function bindEvents() {
     elements.speedRange.addEventListener("input", (event) => {
-      void updateSpeed(event.target.value, { immediate: false });
+      void updateSpeed(sliderToSpeed(event.target.value), { immediate: false });
     });
 
     elements.speedRange.addEventListener("change", (event) => {
-      void updateSpeed(event.target.value);
+      void updateSpeed(sliderToSpeed(event.target.value));
     });
 
     elements.speedInput.addEventListener("change", (event) => {
@@ -168,31 +251,15 @@
     });
 
     elements.speedInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.currentTarget.blur();
-      }
+      if (event.key === "Enter") event.currentTarget.blur();
     });
 
-    elements.decreaseSpeed.addEventListener("click", async () => {
-      if (!connected) return;
-      try {
-        const response = await sendMessage({ type: "NUDGE_SPEED", direction: -1 });
-        if (response?.state) render(response.state);
-      } catch (_error) {
-        setConnectionStatus(false, "Connection lost — reopen on a YouTube tab");
-      }
-    });
-
-    elements.increaseSpeed.addEventListener("click", async () => {
-      if (!connected) return;
-      try {
-        const response = await sendMessage({ type: "NUDGE_SPEED", direction: 1 });
-        if (response?.state) render(response.state);
-      } catch (_error) {
-        setConnectionStatus(false, "Connection lost — reopen on a YouTube tab");
-      }
-    });
-
+    elements.decreaseSpeed.addEventListener("click", () =>
+      void runSimpleCommand({ type: "NUDGE_SPEED", direction: -1 })
+    );
+    elements.increaseSpeed.addEventListener("click", () =>
+      void runSimpleCommand({ type: "NUDGE_SPEED", direction: 1 })
+    );
     elements.resetSpeed.addEventListener("click", () => void updateSpeed(1));
 
     elements.presetGrid.addEventListener("click", (event) => {
@@ -201,29 +268,13 @@
       void updateSpeed(Number(button.dataset.speed));
     });
 
-    elements.jumpInput.addEventListener("change", async (event) => {
-      const step = Number(event.target.value);
-      render({ step });
-      if (!connected) return;
-      try {
-        const response = await sendMessage({ type: "SET_STEP", step });
-        if (response?.state) render(response.state);
-      } catch (_error) {
-        setConnectionStatus(false, "Connection lost — reopen on a YouTube tab");
-      }
-    });
+    elements.jumpInput.addEventListener("change", (event) =>
+      void runSimpleCommand({ type: "SET_STEP", step: Number(event.target.value) })
+    );
 
-    elements.showToast.addEventListener("change", async (event) => {
-      const showToast = event.target.checked;
-      render({ showToast });
-      if (!connected) return;
-      try {
-        const response = await sendMessage({ type: "SET_SHOW_TOAST", showToast });
-        if (response?.state) render(response.state);
-      } catch (_error) {
-        setConnectionStatus(false, "Connection lost — reopen on a YouTube tab");
-      }
-    });
+    elements.showToast.addEventListener("change", (event) =>
+      void runSimpleCommand({ type: "SET_SHOW_TOAST", showToast: event.target.checked })
+    );
   }
 
   async function start() {
@@ -235,8 +286,8 @@
 
   document.addEventListener("DOMContentLoaded", () => {
     void start().catch((error) => {
-      console.error("[YT Speed Enhancer] Popup failed to start", error);
-      if (elements.statusText) setConnectionStatus(false, "Extension could not start — reload it in Chrome");
+      console.error("[YTSE popup] Failed to start", error);
+      if (elements.statusText) setConnectionStatus(false, "Extension could not start — reload it");
     });
   });
 })();
