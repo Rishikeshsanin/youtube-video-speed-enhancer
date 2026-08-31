@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>YouTube Video Speed Enhancer</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="app-header">
+        <div class="brand-mark" aria-hidden="true">
+          <img src="assets/youtube_video_speed_icon.png" alt="" />
+        </div>
+        <div class="brand-copy">
+          <p class="eyebrow">YOUTUBE TOOL</p>
+          <h1>Speed Enhancer</h1>
+        </div>
+        <div class="status-dot" id="statusDot" title="Connection status" aria-label="Connection status"></div>
+      </header>
+
+      <section class="status-card" id="statusCard" aria-live="polite">
+        <span class="status-icon">●</span>
+        <span id="statusText">Connecting to YouTube…</span>
+      </section>
+
+      <section class="speed-panel" aria-labelledby="speedHeading">
+        <div class="speed-topline">
+          <div>
+            <p class="section-label" id="speedHeading">Playback speed</p>
+            <p class="section-help">0.25× to 10×</p>
+          </div>
+          <output class="speed-readout" id="speedReadout" for="speedRange">1.00×</output>
+        </div>
+
+        <input
+          id="speedRange"
+          class="speed-range"
+          type="range"
+          min="0.25"
+          max="10"
+          step="0.05"
+          value="1"
+          aria-label="Playback speed"
+        />
+
+        <div class="speed-controls">
+          <button class="nudge-button" id="decreaseSpeed" type="button" aria-label="Decrease playback speed">−</button>
+          <label class="speed-input-wrap" for="speedInput">
+            <input
+              id="speedInput"
+              class="speed-input"
+              type="number"
+              min="0.25"
+              max="10"
+              step="0.05"
+              value="1"
+              inputmode="decimal"
+              aria-label="Custom playback speed"
+            />
+            <span>×</span>
+          </label>
+          <button class="nudge-button" id="increaseSpeed" type="button" aria-label="Increase playback speed">+</button>
+        </div>
+      </section>
+
+      <section class="preset-section" aria-labelledby="presetsHeading">
+        <div class="section-row">
+          <p class="section-label" id="presetsHeading">Quick presets</p>
+          <button class="text-button" id="resetSpeed" type="button">Reset to 1×</button>
+        </div>
+        <div class="preset-grid" id="presetGrid">
+          <button class="preset-button" type="button" data-speed="0.5">0.5×</button>
+          <button class="preset-button" type="button" data-speed="1">1×</button>
+          <button class="preset-button" type="button" data-speed="1.5">1.5×</button>
+          <button class="preset-button" type="button" data-speed="2">2×</button>
+          <button class="preset-button" type="button" data-speed="3">3×</button>
+          <button class="preset-button" type="button" data-speed="4">4×</button>
+          <button class="preset-button" type="button" data-speed="6">6×</button>
+          <button class="preset-button" type="button" data-speed="8">8×</button>
+        </div>
+      </section>
+
+      <section class="settings-section" aria-label="Extension settings">
+        <div class="setting-row">
+          <div>
+            <p class="setting-title">Keyboard step</p>
+            <p class="setting-copy">Amount changed by + and −</p>
+          </div>
+          <select id="jumpInput" class="step-select" aria-label="Keyboard speed step">
+            <option value="0.1">0.10×</option>
+            <option value="0.25">0.25×</option>
+            <option value="0.5">0.50×</option>
+            <option value="1">1.00×</option>
+          </select>
+        </div>
+
+        <div class="setting-row">
+          <div>
+            <p class="setting-title">On-screen indicator</p>
+            <p class="setting-copy">Show speed changes over the video</p>
+          </div>
+          <label class="switch" for="showToast">
+            <input id="showToast" type="checkbox" checked />
+            <span class="switch-track" aria-hidden="true"></span>
+            <span class="sr-only">Show on-screen indicator</span>
+          </label>
+        </div>
+      </section>
+
+      <footer class="app-footer">
+        <div class="shortcut"><kbd>+</kbd><span>Faster</span></div>
+        <div class="shortcut"><kbd>−</kbd><span>Slower</span></div>
+        <span class="footer-note">Saved automatically</span>
+      </footer>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
